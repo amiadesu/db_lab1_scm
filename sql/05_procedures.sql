@@ -61,6 +61,12 @@ END $$;
 CREATE OR REPLACE PROCEDURE sp_supplier_restore(p_supplier_id INT)
 LANGUAGE plpgsql AS $$
 BEGIN
+    IF EXISTS (SELECT 1 FROM suppliers a
+               JOIN suppliers d ON d.tax_code = a.tax_code
+               WHERE d.supplier_id = p_supplier_id AND a.supplier_id <> p_supplier_id AND NOT a.is_deleted) THEN
+        RAISE EXCEPTION 'Активний постачальник з таким кодом уже існує';
+    END IF;
+
     UPDATE suppliers
     SET is_deleted = FALSE, deleted_at = NULL, deleted_by = NULL
     WHERE supplier_id = p_supplier_id AND is_deleted;
@@ -174,7 +180,26 @@ BEGIN
     END IF;
 END $$;
 
--- 11. Нове замовлення у постачальника в purchase_orders
+-- 11. Відновлення видаленого запису products (sku не має збігатися з активним товаром)
+CREATE OR REPLACE PROCEDURE sp_product_restore(p_product_id INT)
+LANGUAGE plpgsql AS $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM products a
+               JOIN products d ON d.sku = a.sku
+               WHERE d.product_id = p_product_id AND a.product_id <> p_product_id AND NOT a.is_deleted) THEN
+        RAISE EXCEPTION 'Активний товар з таким sku уже існує';
+    END IF;
+
+    UPDATE products
+    SET is_deleted = FALSE, deleted_at = NULL, deleted_by = NULL
+    WHERE product_id = p_product_id AND is_deleted;
+
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'Видаленого товару % не знайдено', p_product_id;
+    END IF;
+END $$;
+
+-- 12. Нове замовлення у постачальника в purchase_orders
 CREATE OR REPLACE PROCEDURE sp_po_create(
     p_supplier_id INT, p_warehouse_id INT, p_expected_date DATE DEFAULT NULL,
     INOUT p_po_id INT DEFAULT NULL, INOUT p_po_number VARCHAR DEFAULT NULL)
@@ -191,7 +216,7 @@ BEGIN
     RETURNING po_id INTO p_po_id;
 END $$;
 
--- 12. Рядок у purchase_order_items (без ціни - береться з supplier_products)
+-- 13. Рядок у purchase_order_items (без ціни - береться з supplier_products)
 CREATE OR REPLACE PROCEDURE sp_po_add_item(
     p_po_id INT, p_product_id INT, p_quantity INT, p_unit_price NUMERIC DEFAULT NULL)
 LANGUAGE plpgsql AS $$
@@ -217,7 +242,7 @@ BEGIN
     SET quantity = purchase_order_items.quantity + EXCLUDED.quantity;
 END $$;
 
--- 13. Зміна статусу purchase_orders: draft -> approved -> sent, скасування до приймання
+-- 14. Зміна статусу purchase_orders: draft -> approved -> sent, скасування до приймання
 CREATE OR REPLACE PROCEDURE sp_po_set_status(p_po_id INT, p_status po_status)
 LANGUAGE plpgsql AS $$
 DECLARE
@@ -240,7 +265,7 @@ BEGIN
     UPDATE purchase_orders SET status = p_status WHERE po_id = p_po_id;
 END $$;
 
--- 14. Приймання товару за purchase_orders через inventory_movements (p_product_id = NULL - приймається все недоотримане)
+-- 15. Приймання товару за purchase_orders через inventory_movements (p_product_id = NULL - приймається все недоотримане)
 CREATE OR REPLACE PROCEDURE sp_po_receive(
     p_po_id INT, p_product_id INT DEFAULT NULL, p_quantity INT DEFAULT NULL)
 LANGUAGE plpgsql AS $$
@@ -249,7 +274,17 @@ DECLARE
     r RECORD;
     v_qty INT;
 BEGIN
+    IF p_quantity IS NOT NULL AND p_product_id IS NULL THEN
+        RAISE EXCEPTION 'Кількість можна вказати лише разом з товаром';
+    END IF;
+    IF p_quantity <= 0 THEN
+        RAISE EXCEPTION 'Кількість має бути додатною (%)', p_quantity;
+    END IF;
+
     SELECT * INTO v_po FROM purchase_orders WHERE po_id = p_po_id FOR UPDATE;
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'Замовлення % не знайдено', p_po_id;
+    END IF;
     IF v_po.status NOT IN ('sent', 'partially_received') THEN
         RAISE EXCEPTION 'Приймати можна лише відправлені замовлення (статус %)', v_po.status;
     END IF;
@@ -269,6 +304,11 @@ BEGIN
         VALUES (v_po.warehouse_id, r.product_id, 'receipt', v_qty, p_po_id, fn_current_app_user());
     END LOOP;
 
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'У замовленні % немає неприйнятого товару%', v_po.po_number,
+            COALESCE(' ' || p_product_id, '');
+    END IF;
+
     UPDATE purchase_orders
     SET status = CASE WHEN EXISTS (SELECT 1 FROM purchase_order_items
                                    WHERE po_id = p_po_id AND received_qty < quantity)
@@ -277,7 +317,7 @@ BEGIN
     WHERE po_id = p_po_id;
 END $$;
 
--- 15. Нове замовлення клієнта в sales_orders
+-- 16. Нове замовлення клієнта в sales_orders
 CREATE OR REPLACE PROCEDURE sp_so_create(
     p_customer_id INT, p_warehouse_id INT, p_required_date DATE DEFAULT NULL,
     INOUT p_so_id INT DEFAULT NULL, INOUT p_so_number VARCHAR DEFAULT NULL)
@@ -294,15 +334,23 @@ BEGIN
     RETURNING so_id INTO p_so_id;
 END $$;
 
--- 16. Рядок у sales_order_items з резервуванням у inventory
+-- 17. Рядок у sales_order_items з резервуванням у inventory
 CREATE OR REPLACE PROCEDURE sp_so_add_item(
     p_so_id INT, p_product_id INT, p_quantity INT, p_discount_pct NUMERIC DEFAULT 0)
 LANGUAGE plpgsql AS $$
 DECLARE
     v_wh INT;
+    v_status so_status;
     v_price NUMERIC;
 BEGIN
-    SELECT warehouse_id INTO v_wh FROM sales_orders WHERE so_id = p_so_id;
+    SELECT warehouse_id, status INTO v_wh, v_status FROM sales_orders WHERE so_id = p_so_id FOR UPDATE;
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'Замовлення клієнта % не знайдено', p_so_id;
+    END IF;
+    IF v_status NOT IN ('new', 'confirmed') THEN
+        RAISE EXCEPTION 'Додавати товар можна лише в нове або підтверджене замовлення (зараз %)', v_status;
+    END IF;
+
     SELECT unit_price INTO v_price FROM products WHERE product_id = p_product_id AND NOT is_deleted;
     IF v_price IS NULL THEN
         RAISE EXCEPTION 'Товар % недоступний', p_product_id;
@@ -321,16 +369,50 @@ BEGIN
     WHERE warehouse_id = v_wh AND product_id = p_product_id;
 END $$;
 
--- 17. Списання товару через inventory_movements і створення запису в shipments
+-- 18. Скасування sales_orders до відвантаження зі зняттям резерву в inventory
+CREATE OR REPLACE PROCEDURE sp_so_cancel(p_so_id INT)
+LANGUAGE plpgsql AS $$
+DECLARE
+    v_wh INT;
+    v_status so_status;
+BEGIN
+    SELECT warehouse_id, status INTO v_wh, v_status FROM sales_orders WHERE so_id = p_so_id FOR UPDATE;
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'Замовлення клієнта % не знайдено', p_so_id;
+    END IF;
+    IF v_status NOT IN ('new', 'confirmed', 'picking') THEN
+        RAISE EXCEPTION 'Скасувати можна лише невідвантажене замовлення (зараз %)', v_status;
+    END IF;
+
+    UPDATE inventory i
+    SET qty_reserved = i.qty_reserved - soi.quantity
+    FROM sales_order_items soi
+    WHERE soi.so_id = p_so_id
+      AND i.warehouse_id = v_wh AND i.product_id = soi.product_id;
+
+    UPDATE sales_orders SET status = 'cancelled' WHERE so_id = p_so_id;
+END $$;
+
+-- 19. Списання товару через inventory_movements і створення запису в shipments
 CREATE OR REPLACE PROCEDURE sp_shipment_create(
     p_so_id INT, p_carrier_id INT, p_tracking VARCHAR, p_cost NUMERIC DEFAULT 0,
     INOUT p_shipment_id INT DEFAULT NULL)
 LANGUAGE plpgsql AS $$
 DECLARE
     v_wh INT;
+    v_status so_status;
     r RECORD;
 BEGIN
-    SELECT warehouse_id INTO v_wh FROM sales_orders WHERE so_id = p_so_id FOR UPDATE;
+    SELECT warehouse_id, status INTO v_wh, v_status FROM sales_orders WHERE so_id = p_so_id FOR UPDATE;
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'Замовлення клієнта % не знайдено', p_so_id;
+    END IF;
+    IF v_status NOT IN ('new', 'confirmed', 'picking') THEN
+        RAISE EXCEPTION 'Замовлення % уже відвантажене або скасоване (%)', p_so_id, v_status;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM sales_order_items WHERE so_id = p_so_id) THEN
+        RAISE EXCEPTION 'Не можна відвантажити порожнє замовлення';
+    END IF;
 
     FOR r IN SELECT product_id, quantity FROM sales_order_items WHERE so_id = p_so_id LOOP
         UPDATE inventory
@@ -341,14 +423,14 @@ BEGIN
         VALUES (v_wh, r.product_id, 'issue', -r.quantity, p_so_id, fn_current_app_user());
     END LOOP;
 
-    INSERT INTO shipments(so_id, carrier_id, tracking_number, status, shipped_at, shipping_cost)
-    VALUES (p_so_id, p_carrier_id, p_tracking, 'in_transit', now(), p_cost)
+    INSERT INTO shipments(so_id, carrier_id, tracking_number, status, shipped_at, shipping_cost, created_by)
+    VALUES (p_so_id, p_carrier_id, p_tracking, 'in_transit', now(), p_cost, fn_current_app_user())
     RETURNING shipment_id INTO p_shipment_id;
 
     UPDATE sales_orders SET status = 'shipped' WHERE so_id = p_so_id;
 END $$;
 
--- 18. Ручне коригування залишку через inventory_movements
+-- 20. Ручне коригування залишку через inventory_movements
 CREATE OR REPLACE PROCEDURE sp_inventory_adjust(
     p_warehouse_id INT, p_product_id INT, p_quantity INT, p_note VARCHAR)
 LANGUAGE plpgsql AS $$
@@ -357,11 +439,16 @@ BEGIN
     VALUES (p_warehouse_id, p_product_id, 'adjustment', p_quantity, p_note, fn_current_app_user());
 END $$;
 
--- 19. Оновлення mv_monthly_purchases
+-- 21. Оновлення mv_monthly_purchases (CONCURRENTLY - лише після першого заповнення)
 CREATE OR REPLACE PROCEDURE sp_refresh_reports()
 LANGUAGE plpgsql AS $$
 BEGIN
-    REFRESH MATERIALIZED VIEW mv_monthly_purchases;
+    IF (SELECT ispopulated FROM pg_matviews
+        WHERE schemaname = 'scm' AND matviewname = 'mv_monthly_purchases') THEN
+        REFRESH MATERIALIZED VIEW CONCURRENTLY mv_monthly_purchases;
+    ELSE
+        REFRESH MATERIALIZED VIEW mv_monthly_purchases;
+    END IF;
 END $$;
 
 -- Фіксований search_path для всіх функцій і процедур схеми scm,
