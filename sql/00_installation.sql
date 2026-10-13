@@ -1,4 +1,4 @@
--- Запуск: psql -d supply_chain -f 00_install_all.sql
+-- Запуск: psql -d db_lab1_scm -f 00_installation.sql
 \set ON_ERROR_STOP on
 \i 01_schema.sql
 \i 02_functions.sql
