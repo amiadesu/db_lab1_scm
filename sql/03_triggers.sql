@@ -53,6 +53,11 @@ CREATE TRIGGER trg_warehouses_audit_log AFTER INSERT OR UPDATE OR DELETE ON ware
     FOR EACH ROW EXECUTE FUNCTION trg_fn_audit_log('warehouse_id');
 CREATE TRIGGER trg_purchase_orders_audit_log AFTER INSERT OR UPDATE OR DELETE ON purchase_orders
     FOR EACH ROW EXECUTE FUNCTION trg_fn_audit_log('po_id');
+CREATE TRIGGER trg_sales_orders_audit_log AFTER INSERT OR UPDATE OR DELETE ON sales_orders
+    FOR EACH ROW EXECUTE FUNCTION trg_fn_audit_log('so_id');
+CREATE TRIGGER trg_shipments_audit_log AFTER INSERT OR UPDATE OR DELETE ON shipments
+    FOR EACH ROW EXECUTE FUNCTION trg_fn_audit_log('shipment_id');
+-- inventory без журналу: кожна зміна залишку вже є в inventory_movements
 
 -- 3. Заборона DELETE для таблиць із soft delete (обхід: SET LOCAL app.allow_hard_delete = 'on')
 CREATE OR REPLACE FUNCTION trg_fn_block_hard_delete()
