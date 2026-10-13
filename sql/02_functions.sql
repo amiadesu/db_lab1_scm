@@ -34,15 +34,21 @@ RETURNS NUMERIC(14,2) LANGUAGE sql STABLE AS $$
 $$;
 
 -- 5. Частка purchase_orders постачальника, отриманих не пізніше expected_date
+-- (дата отримання - останнє приймання в inventory_movements, бо updated_at змінюється й після закриття)
 CREATE OR REPLACE FUNCTION fn_supplier_on_time_rate(p_supplier_id INT)
 RETURNS NUMERIC(5,4) LANGUAGE sql STABLE AS $$
     SELECT CASE WHEN COUNT(*) = 0 THEN NULL
-                ELSE ROUND(COUNT(*) FILTER (WHERE updated_at::date <= expected_date)::numeric / COUNT(*), 4)
+                ELSE ROUND(COUNT(*) FILTER (WHERE r.received_at::date <= po.expected_date)::numeric / COUNT(*), 4)
            END
-    FROM purchase_orders
-    WHERE supplier_id = p_supplier_id
-      AND status = 'received'
-      AND expected_date IS NOT NULL;
+    FROM purchase_orders po
+    JOIN LATERAL (
+        SELECT MAX(m.created_at) AS received_at
+        FROM inventory_movements m
+        WHERE m.po_id = po.po_id AND m.movement_type = 'receipt'
+    ) r ON TRUE
+    WHERE po.supplier_id = p_supplier_id
+      AND po.status = 'received'
+      AND po.expected_date IS NOT NULL;
 $$;
 
 -- 6. Наступний po_number або so_number
