@@ -34,9 +34,9 @@ INSERT INTO product_categories(parent_category_id,name) VALUES (1,'Компле�
 -- Далі від імені ipetrenko
 SELECT set_config('app.current_user_id', '2', false);
 
-INSERT INTO warehouses(code,name,city_id,street,building,location,capacity_m3,manager_id) VALUES
- ('KYIV-01','Центральний склад',1,'вул. Складська','1',point(30.5234, 50.4501),5000,3),
- ('LVIV-01','Західний склад',   2,'вул. Городоцька','200',point(24.0297, 49.8397),2500,3);
+INSERT INTO warehouses(code,name,city_id,street,building,location,capacity_m3,manager_id,created_by) VALUES
+ ('KYIV-01','Центральний склад',1,'вул. Складська','1',point(30.5234, 50.4501),5000,3,fn_current_app_user()),
+ ('LVIV-01','Західний склад',   2,'вул. Городоцька','200',point(24.0297, 49.8397),2500,3,fn_current_app_user());
 
 CALL sp_supplier_create('ТОВ «ТехноПостач»','32157840',1,'просп. Перемоги','45','sales@techno.ua','+380441112233',5);
 CALL sp_supplier_create('PolPack Sp. z o.o.','PL5260001234',6,'ul. Marszałkowska','10','office@polpack.pl','+48221234567',10);
@@ -68,9 +68,9 @@ CALL sp_supplier_product_upsert(2,4,9.80,100,'PP-BOXM');
 CALL sp_supplier_product_upsert(2,5,21.00,50,'PP-TAPE48');
 CALL sp_supplier_product_upsert(4,6,180.00,10,'CC-GEL5');
 
-INSERT INTO customers(name,tax_code,city_id,street,building,email,phone,credit_limit) VALUES
- ('ФОП Бондаренко','3012345670',3,'вул. Дерибасівська','12','bondarenko@gmail.com','+380501234567',50000),
- ('ТОВ «Ритейл Плюс»','38765439',4,'вул. Сумська','100','buy@retailplus.ua','+380577654321',300000);
+INSERT INTO customers(name,tax_code,city_id,street,building,email,phone,credit_limit,created_by) VALUES
+ ('ФОП Бондаренко','3012345670',3,'вул. Дерибасівська','12','bondarenko@gmail.com','+380501234567',50000,fn_current_app_user()),
+ ('ТОВ «Ритейл Плюс»','38765439',4,'вул. Сумська','100','buy@retailplus.ua','+380577654321',300000,fn_current_app_user());
 
 INSERT INTO carriers(name,transport_mode,phone,email) VALUES
  ('Нова Пошта','road','0800500609','b2b@novaposhta.ua'),
