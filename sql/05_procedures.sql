@@ -224,6 +224,10 @@ DECLARE
     v_price NUMERIC;
     v_moq INT;
 BEGIN
+    IF p_quantity IS NULL OR p_quantity <= 0 THEN
+        RAISE EXCEPTION 'Кількість має бути додатною (%)', p_quantity;
+    END IF;
+
     SELECT sp.purchase_price, sp.min_order_qty INTO v_price, v_moq
     FROM supplier_products sp
     JOIN purchase_orders po ON po.supplier_id = sp.supplier_id
@@ -294,7 +298,11 @@ BEGIN
                AND (p_product_id IS NULL OR product_id = p_product_id)
                AND received_qty < quantity
     LOOP
-        v_qty := LEAST(COALESCE(p_quantity, r.quantity - r.received_qty), r.quantity - r.received_qty);
+        IF p_quantity > r.quantity - r.received_qty THEN
+            RAISE EXCEPTION 'Товару % у замовленні % залишилось прийняти %, а вказано %',
+                r.product_id, v_po.po_number, r.quantity - r.received_qty, p_quantity;
+        END IF;
+        v_qty := COALESCE(p_quantity, r.quantity - r.received_qty);
 
         UPDATE purchase_order_items
         SET received_qty = received_qty + v_qty
@@ -342,7 +350,12 @@ DECLARE
     v_wh INT;
     v_status so_status;
     v_price NUMERIC;
+    v_discount NUMERIC;
 BEGIN
+    IF p_quantity IS NULL OR p_quantity <= 0 THEN
+        RAISE EXCEPTION 'Кількість має бути додатною (%)', p_quantity;
+    END IF;
+
     SELECT warehouse_id, status INTO v_wh, v_status FROM sales_orders WHERE so_id = p_so_id FOR UPDATE;
     IF NOT FOUND THEN
         RAISE EXCEPTION 'Замовлення клієнта % не знайдено', p_so_id;
@@ -361,8 +374,22 @@ BEGIN
             p_product_id, fn_available_qty(p_product_id, v_wh), p_quantity;
     END IF;
 
-    INSERT INTO sales_order_items(so_id, product_id, quantity, unit_price, discount_pct)
-    VALUES (p_so_id, p_product_id, p_quantity, v_price, p_discount_pct);
+    SELECT discount_pct INTO v_discount
+    FROM sales_order_items
+    WHERE so_id = p_so_id AND product_id = p_product_id;
+
+    IF FOUND THEN
+        IF v_discount <> COALESCE(p_discount_pct, 0) THEN
+            RAISE EXCEPTION 'Товар % уже є в замовленні зі знижкою % %%, а вказано % %%',
+                p_product_id, v_discount, COALESCE(p_discount_pct, 0);
+        END IF;
+        UPDATE sales_order_items
+        SET quantity = quantity + p_quantity
+        WHERE so_id = p_so_id AND product_id = p_product_id;
+    ELSE
+        INSERT INTO sales_order_items(so_id, product_id, quantity, unit_price, discount_pct)
+        VALUES (p_so_id, p_product_id, p_quantity, v_price, COALESCE(p_discount_pct, 0));
+    END IF;
 
     UPDATE inventory
     SET qty_reserved = qty_reserved + p_quantity
@@ -448,6 +475,177 @@ BEGIN
         REFRESH MATERIALIZED VIEW CONCURRENTLY mv_monthly_purchases;
     ELSE
         REFRESH MATERIALIZED VIEW mv_monthly_purchases;
+    END IF;
+END $$;
+
+-- 22. Soft delete у customers, якщо немає незакритих sales_orders
+CREATE OR REPLACE PROCEDURE sp_customer_soft_delete(p_customer_id INT)
+LANGUAGE plpgsql AS $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM sales_orders
+               WHERE customer_id = p_customer_id
+                 AND status IN ('new', 'confirmed', 'picking')) THEN
+        RAISE EXCEPTION 'У клієнта % є невідвантажені замовлення', p_customer_id;
+    END IF;
+
+    UPDATE customers
+    SET is_deleted = TRUE, deleted_at = now(), deleted_by = fn_current_app_user()
+    WHERE customer_id = p_customer_id AND NOT is_deleted;
+
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'Активного клієнта % не знайдено', p_customer_id;
+    END IF;
+END $$;
+
+-- 23. Відновлення видаленого запису customers
+CREATE OR REPLACE PROCEDURE sp_customer_restore(p_customer_id INT)
+LANGUAGE plpgsql AS $$
+BEGIN
+    UPDATE customers
+    SET is_deleted = FALSE, deleted_at = NULL, deleted_by = NULL
+    WHERE customer_id = p_customer_id AND is_deleted;
+
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'Видаленого клієнта % не знайдено', p_customer_id;
+    END IF;
+END $$;
+
+-- 24. Soft delete у warehouses, якщо склад порожній і на нього немає незакритих замовлень
+CREATE OR REPLACE PROCEDURE sp_warehouse_soft_delete(p_warehouse_id INT)
+LANGUAGE plpgsql AS $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM inventory WHERE warehouse_id = p_warehouse_id AND qty_on_hand > 0) THEN
+        RAISE EXCEPTION 'На складі % є товар, спершу перемістіть або спишіть залишки', p_warehouse_id;
+    END IF;
+    IF EXISTS (SELECT 1 FROM purchase_orders
+               WHERE warehouse_id = p_warehouse_id
+                 AND status IN ('draft', 'approved', 'sent', 'partially_received')) THEN
+        RAISE EXCEPTION 'На склад % очікуються незакриті замовлення постачальникам', p_warehouse_id;
+    END IF;
+    IF EXISTS (SELECT 1 FROM sales_orders
+               WHERE warehouse_id = p_warehouse_id
+                 AND status IN ('new', 'confirmed', 'picking')) THEN
+        RAISE EXCEPTION 'Зі складу % ще не відвантажені замовлення клієнтів', p_warehouse_id;
+    END IF;
+
+    UPDATE warehouses
+    SET is_deleted = TRUE, deleted_at = now(), deleted_by = fn_current_app_user()
+    WHERE warehouse_id = p_warehouse_id AND NOT is_deleted;
+
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'Активного складу % не знайдено', p_warehouse_id;
+    END IF;
+END $$;
+
+-- 25. Відновлення видаленого запису warehouses (code не має збігатися з активним складом)
+CREATE OR REPLACE PROCEDURE sp_warehouse_restore(p_warehouse_id INT)
+LANGUAGE plpgsql AS $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM warehouses a
+               JOIN warehouses d ON d.code = a.code
+               WHERE d.warehouse_id = p_warehouse_id AND a.warehouse_id <> p_warehouse_id AND NOT a.is_deleted) THEN
+        RAISE EXCEPTION 'Активний склад з таким кодом уже існує';
+    END IF;
+
+    UPDATE warehouses
+    SET is_deleted = FALSE, deleted_at = NULL, deleted_by = NULL
+    WHERE warehouse_id = p_warehouse_id AND is_deleted;
+
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'Видаленого складу % не знайдено', p_warehouse_id;
+    END IF;
+END $$;
+
+-- 26. Soft delete у carriers, якщо в перевізника немає відвантажень у дорозі
+CREATE OR REPLACE PROCEDURE sp_carrier_soft_delete(p_carrier_id INT)
+LANGUAGE plpgsql AS $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM shipments
+               WHERE carrier_id = p_carrier_id AND status IN ('planned', 'in_transit')) THEN
+        RAISE EXCEPTION 'У перевізника % є відвантаження в дорозі', p_carrier_id;
+    END IF;
+
+    UPDATE carriers
+    SET is_deleted = TRUE, deleted_at = now(), deleted_by = fn_current_app_user()
+    WHERE carrier_id = p_carrier_id AND NOT is_deleted;
+
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'Активного перевізника % не знайдено', p_carrier_id;
+    END IF;
+END $$;
+
+-- 27. Відновлення видаленого запису carriers
+CREATE OR REPLACE PROCEDURE sp_carrier_restore(p_carrier_id INT)
+LANGUAGE plpgsql AS $$
+BEGIN
+    UPDATE carriers
+    SET is_deleted = FALSE, deleted_at = NULL, deleted_by = NULL
+    WHERE carrier_id = p_carrier_id AND is_deleted;
+
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'Видаленого перевізника % не знайдено', p_carrier_id;
+    END IF;
+END $$;
+
+-- 28. Зміна статусу sales_orders: new -> confirmed -> picking
+CREATE OR REPLACE PROCEDURE sp_so_set_status(p_so_id INT, p_status so_status)
+LANGUAGE plpgsql AS $$
+DECLARE
+    v_old so_status;
+BEGIN
+    SELECT status INTO v_old FROM sales_orders WHERE so_id = p_so_id FOR UPDATE;
+    IF v_old IS NULL THEN
+        RAISE EXCEPTION 'Замовлення клієнта % не знайдено', p_so_id;
+    END IF;
+
+    IF NOT ((v_old = 'new' AND p_status = 'confirmed')
+         OR (v_old = 'confirmed' AND p_status = 'picking')) THEN
+        RAISE EXCEPTION 'Недопустимий перехід статусу % -> %', v_old, p_status
+            USING HINT = 'shipped, delivered і cancelled ставляться через відвантаження або скасування';
+    END IF;
+    IF p_status = 'confirmed' AND NOT EXISTS (SELECT 1 FROM sales_order_items WHERE so_id = p_so_id) THEN
+        RAISE EXCEPTION 'Не можна підтвердити порожнє замовлення';
+    END IF;
+
+    UPDATE sales_orders SET status = p_status WHERE so_id = p_so_id;
+END $$;
+
+-- 29. Зміна статусу shipments: planned -> in_transit -> delivered / lost / returned
+CREATE OR REPLACE PROCEDURE sp_shipment_set_status(p_shipment_id INT, p_status shipment_status)
+LANGUAGE plpgsql AS $$
+DECLARE
+    v_sh shipments%ROWTYPE;
+    v_so sales_orders%ROWTYPE;
+BEGIN
+    SELECT * INTO v_sh FROM shipments WHERE shipment_id = p_shipment_id FOR UPDATE;
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'Відвантаження % не знайдено', p_shipment_id;
+    END IF;
+
+    IF NOT ((v_sh.status = 'planned' AND p_status = 'in_transit')
+         OR (v_sh.status = 'in_transit' AND p_status IN ('delivered', 'lost', 'returned'))
+         OR (v_sh.status = 'lost' AND p_status = 'returned')) THEN
+        RAISE EXCEPTION 'Недопустимий перехід статусу відвантаження % -> %', v_sh.status, p_status;
+    END IF;
+
+    UPDATE shipments
+    SET status = p_status,
+        shipped_at = CASE WHEN p_status = 'in_transit' THEN now() ELSE shipped_at END,
+        delivered_at = CASE WHEN p_status = 'delivered' THEN now() ELSE delivered_at END
+    WHERE shipment_id = p_shipment_id;
+
+    SELECT * INTO v_so FROM sales_orders WHERE so_id = v_sh.so_id FOR UPDATE;
+
+    IF p_status = 'delivered' THEN
+        UPDATE sales_orders SET status = 'delivered' WHERE so_id = v_so.so_id;
+    ELSIF p_status = 'returned' THEN
+        INSERT INTO inventory_movements(warehouse_id, product_id, movement_type, quantity, note, created_by)
+        SELECT v_so.warehouse_id, soi.product_id, 'adjustment', soi.quantity,
+               format('Повернення відвантаження %s за замовленням %s',
+                      COALESCE(v_sh.tracking_number, v_sh.shipment_id::text), v_so.so_number),
+               fn_current_app_user()
+        FROM sales_order_items soi
+        WHERE soi.so_id = v_so.so_id;
     END IF;
 END $$;
 
