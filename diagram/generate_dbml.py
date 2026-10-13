@@ -9,7 +9,7 @@ import psycopg2
 DSN = os.getenv("SCM_DSN", "dbname=db_lab1_scm user=postgres host=localhost")
 
 GROUPS = {
-    "Довідники": ["roles", "users", "countries", "cities", "units_of_measure", "product_categories"],
+    "Системні таблиці": ["roles", "users", "countries", "cities", "units_of_measure", "product_categories"],
     "Постачання": ["suppliers", "supplier_bank_details", "supplier_contacts", "supplier_products",
                    "purchase_orders", "purchase_order_items"],
     "Склад": ["products", "product_attributes", "warehouses", "inventory", "inventory_movements"],

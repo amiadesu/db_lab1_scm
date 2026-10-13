@@ -36,7 +36,7 @@ Enum so_status {
   cancelled
 }
 
-TableGroup "Довідники" {
+TableGroup "Системні таблиці" {
   roles
   users
   countries
