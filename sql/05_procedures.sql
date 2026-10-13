@@ -223,6 +223,7 @@ LANGUAGE plpgsql AS $$
 DECLARE
     v_price NUMERIC;
     v_moq INT;
+    v_current INT;
 BEGIN
     IF p_quantity IS NULL OR p_quantity <= 0 THEN
         RAISE EXCEPTION 'Кількість має бути додатною (%)', p_quantity;
@@ -236,7 +237,12 @@ BEGIN
     IF v_price IS NULL AND p_unit_price IS NULL THEN
         RAISE EXCEPTION 'Постачальник не постачає товар %, а ціну не вказано', p_product_id;
     END IF;
-    IF v_moq IS NOT NULL AND p_quantity < v_moq THEN
+
+    SELECT quantity INTO v_current
+    FROM purchase_order_items
+    WHERE po_id = p_po_id AND product_id = p_product_id;
+
+    IF v_moq IS NOT NULL AND COALESCE(v_current, 0) + p_quantity < v_moq THEN
         RAISE EXCEPTION 'Мінімальна партія товару %: %', p_product_id, v_moq;
     END IF;
 
