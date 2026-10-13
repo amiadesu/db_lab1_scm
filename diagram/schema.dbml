@@ -275,6 +275,8 @@ Table warehouses {
   location point
   capacity_m3 numeric(12,2)
   manager_id integer [ref: > users.user_id]
+  created_at timestamptz [not null, default: `now()`]
+  created_by integer [note: 'FK -> users.user_id']
   updated_at timestamptz [not null, default: `now()`]
   updated_by integer [note: 'FK -> users.user_id']
   is_deleted boolean [not null, default: `false`]
@@ -335,6 +337,8 @@ Table customers {
   email email_address
   phone phone_number
   credit_limit numeric(14,2) [not null, default: `0`]
+  created_at timestamptz [not null, default: `now()`]
+  created_by integer [note: 'FK -> users.user_id']
   updated_at timestamptz [not null, default: `now()`]
   updated_by integer [note: 'FK -> users.user_id']
   is_deleted boolean [not null, default: `false`]
@@ -410,6 +414,8 @@ Table shipments {
   shipped_at timestamptz
   delivered_at timestamptz
   shipping_cost numeric(12,2) [not null, default: `0`]
+  created_at timestamptz [not null, default: `now()`]
+  created_by integer [note: 'FK -> users.user_id']
   updated_at timestamptz [not null, default: `now()`]
   updated_by integer [note: 'FK -> users.user_id']
 
