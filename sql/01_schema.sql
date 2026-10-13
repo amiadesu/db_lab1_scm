@@ -191,7 +191,9 @@ CREATE TABLE products (
     updated_by INT REFERENCES users(user_id),
     is_deleted BOOLEAN NOT NULL DEFAULT FALSE,
     deleted_at TIMESTAMPTZ,
-    deleted_by INT REFERENCES users(user_id)
+    deleted_by INT REFERENCES users(user_id),
+    CONSTRAINT chk_products_soft_delete
+        CHECK ((is_deleted AND deleted_at IS NOT NULL) OR (NOT is_deleted AND deleted_at IS NULL))
 );
 
 -- 11. Характеристики товару
@@ -223,11 +225,15 @@ CREATE TABLE warehouses (
     location POINT CHECK (location[0] BETWEEN -180 AND 180 AND location[1] BETWEEN -90 AND 90), -- (довгота, широта)
     capacity_m3 NUMERIC(12,2) CHECK (capacity_m3 > 0),
     manager_id INT REFERENCES users(user_id),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    created_by INT REFERENCES users(user_id),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_by INT REFERENCES users(user_id),
     is_deleted BOOLEAN NOT NULL DEFAULT FALSE,
     deleted_at TIMESTAMPTZ,
-    deleted_by INT REFERENCES users(user_id)
+    deleted_by INT REFERENCES users(user_id),
+    CONSTRAINT chk_warehouses_soft_delete
+        CHECK ((is_deleted AND deleted_at IS NOT NULL) OR (NOT is_deleted AND deleted_at IS NULL))
 );
 
 -- 14. Залишки на складах
@@ -253,11 +259,15 @@ CREATE TABLE customers (
     email email_address,
     phone phone_number,
     credit_limit NUMERIC(14,2) NOT NULL DEFAULT 0 CHECK (credit_limit >= 0),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    created_by INT REFERENCES users(user_id),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_by INT REFERENCES users(user_id),
     is_deleted BOOLEAN NOT NULL DEFAULT FALSE,
     deleted_at TIMESTAMPTZ,
-    deleted_by INT REFERENCES users(user_id)
+    deleted_by INT REFERENCES users(user_id),
+    CONSTRAINT chk_customers_soft_delete
+        CHECK ((is_deleted AND deleted_at IS NOT NULL) OR (NOT is_deleted AND deleted_at IS NULL))
 );
 
 -- 16. Замовлення у постачальника
@@ -351,7 +361,9 @@ CREATE TABLE carriers (
     email email_address,
     is_deleted BOOLEAN NOT NULL DEFAULT FALSE,
     deleted_at TIMESTAMPTZ,
-    deleted_by INT REFERENCES users(user_id)
+    deleted_by INT REFERENCES users(user_id),
+    CONSTRAINT chk_carriers_soft_delete
+        CHECK ((is_deleted AND deleted_at IS NOT NULL) OR (NOT is_deleted AND deleted_at IS NULL))
 );
 
 -- 22. Договори з перевізниками
@@ -374,6 +386,8 @@ CREATE TABLE shipments (
     shipped_at TIMESTAMPTZ,
     delivered_at TIMESTAMPTZ,
     shipping_cost NUMERIC(12,2) NOT NULL DEFAULT 0 CHECK (shipping_cost >= 0),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    created_by INT REFERENCES users(user_id),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_by INT REFERENCES users(user_id),
     CONSTRAINT chk_ship_dates CHECK (delivered_at IS NULL OR shipped_at IS NULL OR delivered_at >= shipped_at),
