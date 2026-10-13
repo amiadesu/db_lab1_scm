@@ -172,6 +172,7 @@ Table supplier_contacts {
 
   indexes {
     supplier_id [type: btree, name: 'ix_supplier_contacts_supp', note: 'BTREE']
+    supplier_id [unique, type: btree, name: 'ux_supplier_contacts_primary', note: 'BTREE WHERE is_primary']
   }
 }
 
