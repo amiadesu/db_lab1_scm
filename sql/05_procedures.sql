@@ -334,6 +334,9 @@ BEGIN
     IF EXISTS (SELECT 1 FROM customers WHERE customer_id = p_customer_id AND is_deleted) THEN
         RAISE EXCEPTION 'Клієнт % видалений', p_customer_id;
     END IF;
+    IF EXISTS (SELECT 1 FROM warehouses WHERE warehouse_id = p_warehouse_id AND is_deleted) THEN
+        RAISE EXCEPTION 'Склад % видалений', p_warehouse_id;
+    END IF;
 
     p_so_number := fn_next_doc_number('SO');
 
@@ -439,6 +442,9 @@ BEGIN
     END IF;
     IF NOT EXISTS (SELECT 1 FROM sales_order_items WHERE so_id = p_so_id) THEN
         RAISE EXCEPTION 'Не можна відвантажити порожнє замовлення';
+    END IF;
+    IF EXISTS (SELECT 1 FROM carriers WHERE carrier_id = p_carrier_id AND is_deleted) THEN
+        RAISE EXCEPTION 'Перевізник % видалений', p_carrier_id;
     END IF;
 
     FOR r IN SELECT product_id, quantity FROM sales_order_items WHERE so_id = p_so_id LOOP
@@ -646,6 +652,9 @@ BEGIN
                fn_current_app_user()
         FROM sales_order_items soi
         WHERE soi.so_id = v_so.so_id;
+
+        -- товар уже на складі без резерву, тож повторно відвантажити замовлення не можна
+        UPDATE sales_orders SET status = 'cancelled' WHERE so_id = v_so.so_id;
     END IF;
 END $$;
 
