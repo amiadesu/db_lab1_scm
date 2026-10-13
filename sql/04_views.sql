@@ -131,7 +131,7 @@ SELECT a.audit_id, a.changed_at, a.table_name, a.record_id, a.operation,
 FROM audit_log a
 LEFT JOIN users u ON u.user_id = a.changed_by;
 
--- 10. sales_orders із сумою та даними з shipments
+-- 10. sales_orders із сумою та останнім записом з shipments (один рядок на замовлення)
 CREATE OR REPLACE VIEW v_sales_orders AS
 SELECT so.so_id, so.so_number, so.status, so.order_date, so.required_date,
        c.customer_id, c.name AS customer_name, w.code AS warehouse_code,
@@ -140,7 +140,13 @@ SELECT so.so_id, so.so_number, so.status, so.order_date, so.required_date,
 FROM sales_orders so
 JOIN customers c ON c.customer_id = so.customer_id
 JOIN warehouses w ON w.warehouse_id = so.warehouse_id
-LEFT JOIN shipments sh ON sh.so_id = so.so_id
+LEFT JOIN LATERAL (
+    SELECT s.shipment_id, s.tracking_number, s.status, s.carrier_id
+    FROM shipments s
+    WHERE s.so_id = so.so_id
+    ORDER BY s.shipment_id DESC
+    LIMIT 1
+) sh ON TRUE
 LEFT JOIN carriers cr ON cr.carrier_id = sh.carrier_id;
 
 -- 11. Невидалені warehouses з адресою та менеджером
