@@ -81,7 +81,8 @@ BEGIN
     END LOOP;
 END $$;
 
--- 4. Лише один запис supplier_contacts з is_primary на постачальника
+-- 4. Лише один запис supplier_contacts з is_primary на постачальника,
+--    новий основний контакт знімає позначку з попереднього.
 CREATE OR REPLACE FUNCTION trg_fn_single_primary_contact()
 RETURNS TRIGGER LANGUAGE plpgsql AS $$
 BEGIN
@@ -90,11 +91,11 @@ BEGIN
     WHERE supplier_id = NEW.supplier_id
       AND contact_id <> NEW.contact_id
       AND is_primary;
-    RETURN NULL;
+    RETURN NEW;
 END $$;
 
 CREATE TRIGGER trg_supplier_contacts_single_primary
-AFTER INSERT OR UPDATE OF is_primary ON supplier_contacts
+BEFORE INSERT OR UPDATE OF is_primary, supplier_id ON supplier_contacts
 FOR EACH ROW WHEN (NEW.is_primary) EXECUTE FUNCTION trg_fn_single_primary_contact();
 
 -- 5. Заборона циклів у product_categories через parent_category_id

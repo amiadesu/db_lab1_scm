@@ -4,6 +4,8 @@ SET search_path TO scm, public;
 CREATE UNIQUE INDEX ux_suppliers_tax_code_active ON suppliers(tax_code) WHERE NOT is_deleted;
 CREATE UNIQUE INDEX ux_products_sku_active ON products(sku) WHERE NOT is_deleted;
 CREATE UNIQUE INDEX ux_warehouses_code_active ON warehouses(code) WHERE NOT is_deleted;
+-- не більше одного основного контакту на постачальника (тригер лише знімає позначку зі старого)
+CREATE UNIQUE INDEX ux_supplier_contacts_primary ON supplier_contacts(supplier_id) WHERE is_primary;
 
 -- 2. Складені: замовлення постачальника або клієнта за датою
 CREATE INDEX ix_po_supplier_date ON purchase_orders(supplier_id, order_date DESC);
