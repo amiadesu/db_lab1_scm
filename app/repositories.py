@@ -7,7 +7,8 @@ from psycopg2.extensions import connection as PgConnection
 from psycopg2.extras import RealDictCursor
 from psycopg2 import sql
 
-from .models import Product, PurchaseOrder, PurchaseOrderItem, StockLevel, Supplier
+from .models import (ChangeRecord, DeletedRecord, Product, PurchaseOrder, PurchaseOrderItem,
+                     ReorderRecommendation, StockLevel, Supplier, SupplierPerformance)
 
 
 class BaseRepository:
@@ -71,8 +72,9 @@ class SupplierRepository(BaseRepository):
     def restore(self, supplier_id: int) -> None:
         self._call("sp_supplier_restore", (supplier_id,))
 
-    def get_performance(self) -> list[dict]:
-        return self._query_view("v_supplier_performance", order_by="supplier_id")
+    def get_performance(self) -> list[SupplierPerformance]:
+        return [SupplierPerformance.from_row(r)
+                for r in self._query_view("v_supplier_performance", order_by="supplier_id")]
 
 
 class ProductRepository(BaseRepository):
@@ -99,6 +101,9 @@ class ProductRepository(BaseRepository):
 
     def delete(self, product_id: int) -> None:  # soft delete
         self._call("sp_product_soft_delete", (product_id,))
+
+    def restore(self, product_id: int) -> None:
+        self._call("sp_product_restore", (product_id,))
 
 
 class PurchaseOrderRepository(BaseRepository):
@@ -131,20 +136,22 @@ class PurchaseOrderRepository(BaseRepository):
 
 class InventoryRepository(BaseRepository):
     def get_stock(self, warehouse_id: Optional[int] = None) -> list[StockLevel]:
-        where = {"warehouse_id": warehouse_id} if warehouse_id else None
+        where = {"warehouse_id": warehouse_id} if warehouse_id is not None else None
         return [StockLevel.from_row(r) for r in self._query_view("v_stock_levels", where, "sku")]
 
     def adjust(self, warehouse_id: int, product_id: int, quantity: int, note: str) -> None:
         self._call("sp_inventory_adjust", (warehouse_id, product_id, quantity, note))
 
-    def get_reorder_recommendations(self) -> list[dict]:
-        return self._query_view("v_reorder_recommendations", order_by="sku")
+    def get_reorder_recommendations(self) -> list[ReorderRecommendation]:
+        return [ReorderRecommendation.from_row(r)
+                for r in self._query_view("v_reorder_recommendations", order_by="sku")]
 
 
 class AuditRepository(BaseRepository):
-    def history(self, table_name: str, record_id: int) -> list[dict]:
-        return self._query_view("v_change_history",
+    def history(self, table_name: str, record_id: int) -> list[ChangeRecord]:
+        rows = self._query_view("v_change_history",
                                 {"table_name": table_name, "record_id": str(record_id)}, "audit_id")
+        return [ChangeRecord.from_row(r) for r in rows]
 
-    def recycle_bin(self) -> list[dict]:
-        return self._query_view("v_recycle_bin", order_by="deleted_at")
+    def recycle_bin(self) -> list[DeletedRecord]:
+        return [DeletedRecord.from_row(r) for r in self._query_view("v_recycle_bin", order_by="deleted_at")]

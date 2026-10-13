@@ -106,3 +106,60 @@ class StockLevel:
     needs_reorder: bool
 
     from_row = classmethod(_from_row)
+
+
+@dataclass
+class ReorderRecommendation:
+    warehouse_id: int
+    warehouse_code: str
+    product_id: int
+    sku: str
+    product_name: str
+    qty_available: int
+    reorder_level: int
+    suggested_qty: int
+    supplier_id: Optional[int] = None
+    supplier_name: Optional[str] = None
+    purchase_price: Optional[Decimal] = None
+    lead_time_days: Optional[int] = None
+
+    from_row = classmethod(_from_row)
+
+
+@dataclass
+class SupplierPerformance:
+    supplier_id: int
+    name: str
+    rating: Optional[Decimal]
+    lead_time_days: int
+    orders_total: int
+    orders_received: int
+    orders_cancelled: int
+    total_spend: Decimal
+    on_time_rate: Optional[Decimal]
+
+    from_row = classmethod(_from_row)
+
+
+@dataclass
+class ChangeRecord:
+    audit_id: int
+    changed_at: datetime
+    table_name: str
+    record_id: str
+    operation: str
+    changed_by_login: Optional[str]
+    changed_fields: Optional[dict]
+
+    from_row = classmethod(_from_row)
+
+
+@dataclass
+class DeletedRecord:
+    entity: str
+    id: int
+    name: str
+    deleted_at: datetime
+    deleted_by: Optional[int]
+
+    from_row = classmethod(_from_row)

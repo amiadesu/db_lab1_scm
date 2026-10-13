@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 
 import psycopg2
+from psycopg2 import sql
 from psycopg2.extensions import connection as PgConnection
 
 from .repositories import (AuditRepository, InventoryRepository, ProductRepository,
@@ -12,6 +13,12 @@ DEFAULT_DSN = os.getenv("SCM_DSN", "dbname=db_lab1_scm user=postgres host=localh
 
 # Одна транзакція на всі репозиторії: або зберігаються всі зміни, або жодна.
 class UnitOfWork:
+    suppliers: SupplierRepository
+    products: ProductRepository
+    purchase_orders: PurchaseOrderRepository
+    inventory: InventoryRepository
+    audit: AuditRepository
+
     def __init__(self, user_id: int, dsn: str = DEFAULT_DSN):
         self._dsn = dsn
         self._user_id = user_id
@@ -53,8 +60,8 @@ class UnitOfWork:
 
     def savepoint(self, name: str) -> None:
         with self._conn.cursor() as cur:
-            cur.execute(f"SAVEPOINT {name}")
+            cur.execute(sql.SQL("SAVEPOINT {}").format(sql.Identifier(name)))
 
     def rollback_to(self, name: str) -> None:
         with self._conn.cursor() as cur:
-            cur.execute(f"ROLLBACK TO SAVEPOINT {name}")
+            cur.execute(sql.SQL("ROLLBACK TO SAVEPOINT {}").format(sql.Identifier(name)))

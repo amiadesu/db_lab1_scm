@@ -89,24 +89,24 @@ def scenario_4_soft_delete_restore() -> None:
         uow.suppliers.delete(sid)
         uow.commit()
         print("   у списку активних:", uow.suppliers.get_by_id(sid) is not None)
-        print("   у кошику:", [r["name"] for r in uow.audit.recycle_bin()])
+        print("   у кошику:", [r.name for r in uow.audit.recycle_bin()])
         uow.suppliers.restore(sid)
         uow.commit()
         print("   після restore активний:", uow.suppliers.get_by_id(sid) is not None)
         for h in uow.audit.history("suppliers", sid):
-            print(f"   {h['changed_at']:%H:%M:%S} {h['operation']:<8} {h['changed_by_login']:<6} "
-                  f"{h['changed_fields'] or ''}")
+            print(f"   {h.changed_at:%H:%M:%S} {h.operation:<8} {h.changed_by_login:<6} "
+                  f"{h.changed_fields or ''}")
 
 
 def scenario_5_reports() -> None:
     title("5. Звіти з розрізів даних")
     with UnitOfWork(user_id=ADMIN) as uow:
         for r in uow.inventory.get_reorder_recommendations():
-            print(f"   дозамовити {r['sku']:<12} x{r['suggested_qty']:<4} у {r['supplier_name']} "
-                  f"по {r['purchase_price']}")
+            print(f"   дозамовити {r.sku:<12} x{r.suggested_qty:<4} у {r.supplier_name} "
+                  f"по {r.purchase_price}")
         for r in uow.suppliers.get_performance():
-            print(f"   {r['name']:<25} замовлень={r['orders_total']} сума={r['total_spend']} "
-                  f"вчасно={r['on_time_rate']}")
+            print(f"   {r.name:<25} замовлень={r.orders_total} сума={r.total_spend} "
+                  f"вчасно={r.on_time_rate}")
 
 # Запуск: python -m app.demo
 # Підключення задається змінною SCM_DSN, наприклад "dbname=db_lab1_scm user=postgres host=localhost"
