@@ -7,3 +7,4 @@
 \i 05_procedures.sql
 \i 06_indexes.sql
 \i 07_seed.sql
+\i 08_lab2_indexes.sql
