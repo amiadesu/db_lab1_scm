@@ -1,0 +1,10 @@
+
+=== Контейнери (podman compose) ===
+[4m>>>> Executing external compose provider "/usr/bin/podman-compose". Please see podman-compose(1) for how to disable this message. <<<<
+
+[0mf830f56f564e1a8f49e71bba5412c8297d3bd9c0bb5d36c73afc492284ad2396
+8734cd71a3ff95addd5a86ad6692b009eb70cb1191b28db45dd230f06bbd0370
+lab2-mongo
+lab2-neo4j
+
+=== Очікування баз ===
