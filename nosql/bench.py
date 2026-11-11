@@ -14,6 +14,7 @@ from .config import MONGO_DB, MONGO_URI, PG_DSN, RESULTS_DIR
 from .generate import ATTRS, LEAVES, TREE, attr_text, make_product, n_suppliers
 
 ROOT = {code: root for code, root in TREE}
+LEAF_CODE = {leaf: code for code, _, leaf, _ in LEAVES}
 from .migrate import typed
 
 # код: (опис, кількість вимірювань, прогрів)
@@ -173,7 +174,7 @@ def run_mongo(coll, test, p, ctx):
         return coll.insert_one({
             "_id": p["id"], "sku": p["sku"], "name": p["name"], "description": p["description"],
             "category": {"id": ctx.cat[p["leaf"]], "name": p["leaf"],
-                         "pathIds": [ctx.cat[ROOT[p["sku"][1:3]]], ctx.cat[p["mid"]], ctx.cat[p["leaf"]]]},
+                         "pathIds": [ctx.cat[ROOT[LEAF_CODE[p["leaf"]]]], ctx.cat[p["mid"]], ctx.cat[p["leaf"]]]},
             "uom": {"code": p["uom"]}, "priceMinor": int(round(float(p["price"]) * 100)), "currency": "UAH",
             "weightKg": float(p["weight"]),
             "attributes": {k: typed(k, attr_text(v)) for k, v in p["attrs"].items()},
